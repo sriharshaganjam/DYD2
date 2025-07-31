@@ -3,4 +3,4 @@ beautifulsoup4
 requests
 pdfplumber
 python-dotenv
-openai
+openai==0.28.1
