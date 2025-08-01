@@ -14,10 +14,101 @@ def load_courses(path="courses.json"):
     with open(path, "r") as f:
         return json.load(f)
 
+def extract_current_discussion_course(chat_history):
+    """Extract the specific course currently being discussed"""
+    current_course = None
+    
+    # Look through recent messages to find what course is being discussed
+    recent_messages = chat_history[-6:] if len(chat_history) > 6 else chat_history
+    
+    for message in reversed(recent_messages):  # Start from most recent
+        content = message.get("content", "").lower()
+        
+        # Look for course-specific mentions
+        if "b.des in animation" in content or "animation and visual effects" in content:
+            current_course = "B.Des in Animation and Visual Effects"
+            break
+        elif "computer science" in content and "engineering" in content:
+            current_course = "Computer Science and Engineering"
+            break
+        elif "bachelor of technology" in content and "information science" in content:
+            current_course = "Bachelor of Technology in Information Science"
+            break
+        elif "b.com" in content or "commerce" in content:
+            current_course = "Bachelor of Commerce"
+            break
+        # Add more course patterns as needed
+    
+    return current_course
+
+def check_if_asking_about_specific_course(user_message, chat_history):
+    """Check if user is asking about a specific course mentioned in recent conversation"""
+    if not user_message:
+        return None
+    
+    message_lower = user_message.lower()
+    
+    # First check if they're asking about a specific course in this message
+    if "animation" in message_lower and ("b.des" in message_lower or "visual effects" in message_lower):
+        return "B.Des in Animation and Visual Effects"
+    
+    # If not, check what course is currently being discussed
+    current_course = extract_current_discussion_course(chat_history)
+    
+    # If asking follow-up questions about career/jobs/details, assume it's about current course
+    followup_keywords = [
+        "job opportunities", "career prospects", "employment", "salary", "placement",
+        "subjects", "curriculum", "syllabus", "details", "more about", "tell me about",
+        "how is", "what about", "opportunities", "scope", "future"
+    ]
+    
+    if any(keyword in message_lower for keyword in followup_keywords) and current_course:
+        return current_course
+    
+    return None
+def extract_initial_recommended_courses(chat_history):
+    """Extract the courses that were initially recommended to the student"""
+    initial_courses = "The courses initially recommended to you"
+    
+    # Find the first assistant message (initial recommendation)
+    for message in chat_history:
+        if message.get("role") == "assistant":
+            content = message.get("content", "")
+            # Extract course names that were mentioned in the initial recommendation
+            if content and len(content) > 100:  # Substantial response likely containing recommendations
+                initial_courses = f"Here's what I initially recommended to you:\n\n{content[:800]}..."
+                break
+    
+    return initial_courses
+
+def check_if_asking_for_alternatives(user_message):
+    """Check if the student is specifically asking for different/alternative courses"""
+    if not user_message:
+        return False
+    
+    message_lower = user_message.lower()
+    
+    # Keywords that indicate they want different options
+    alternative_keywords = [
+        "other options", "different courses", "alternatives", "other courses",
+        "something else", "different options", "more options", "other programs",
+        "different field", "change", "instead", "rather than", "not interested",
+        "don't like", "different area", "explore other", "what else",
+        "any other", "show me other", "different degree", "other majors"
+    ]
+    
+    # Check if any alternative keywords are present
+    for keyword in alternative_keywords:
+        if keyword in message_lower:
+            return True
+    
+    return False
 def filter_and_match_courses(courses, profile):
-    """Filter courses by degree level and match to profile - no bias"""
+    """Filter courses by degree level and match to profile with MEDIUM weight for activities"""
     degree_level = profile.get("degree_level", "Bachelor's Degree")
     interests = profile.get("interests", [])
+    activities = profile.get("activities", [])  # Medium weightage
+    derived_skills = profile.get("derived_skills", [])  # Medium weightage
     
     # First filter by degree level
     filtered_courses = []
@@ -34,31 +125,57 @@ def filter_and_match_courses(courses, profile):
             if any(keyword in course_name for keyword in master_keywords):
                 filtered_courses.append(course)
     
-    # Simple interest matching - no special weights or bias
-    if interests:
-        matched_courses = []
-        unmatched_courses = []
+    # Enhanced matching with MEDIUM weight for activities
+    if interests or activities:
+        highly_matched_courses = []  # Strong matches (interests + activities)
+        moderately_matched_courses = []  # Medium matches (interests OR activities)
+        unmatched_courses = []  # No matches
         
         for course in filtered_courses:
             course_text = (course.get('course', '') + ' ' + course.get('degree', '')).lower()
             
-            # Check if course relates to any student interest
-            course_matches_interest = False
+            interest_match = False
+            activity_match = False
+            
+            # Check interest matching
             for interest in interests:
                 interest_lower = interest.lower()
-                
-                # Simple keyword matching - all interests treated equally
                 if interest_lower in course_text or any(word in course_text for word in interest_lower.split()):
-                    course_matches_interest = True
+                    interest_match = True
                     break
             
-            if course_matches_interest:
-                matched_courses.append(course)
+            # Check activity matching - MEDIUM WEIGHTAGE
+            activity_course_mapping = {
+                "leadership": ["management", "business", "administration", "leadership"],
+                "technical projects": ["computer", "technology", "engineering", "software"],
+                "creative arts": ["design", "art", "creative", "visual", "communication"],
+                "sports": ["sports", "physical education", "athletics", "fitness"],
+                "community service": ["social work", "psychology", "counseling", "humanities"],
+                "academic excellence": ["research", "science", "mathematics", "academic"],
+                "performance": ["music", "performing arts", "media", "communication"],
+                "business": ["business", "commerce", "management", "finance", "entrepreneurship"]
+            }
+            
+            for activity in activities:
+                activity_lower = activity.lower()
+                for activity_type, course_keywords in activity_course_mapping.items():
+                    if activity_type in activity_lower:
+                        if any(keyword in course_text for keyword in course_keywords):
+                            activity_match = True
+                            break
+                if activity_match:
+                    break
+            
+            # Prioritize based on both interest and activity matches
+            if interest_match and activity_match:
+                highly_matched_courses.append(course)  # Best match
+            elif interest_match or activity_match:
+                moderately_matched_courses.append(course)  # Good match
             else:
-                unmatched_courses.append(course)
+                unmatched_courses.append(course)  # Include but lower priority
         
-        # Return matched courses first, then others (but don't exclude anything)
-        return matched_courses + unmatched_courses
+        # Return in priority order: highly matched → moderately matched → unmatched
+        return highly_matched_courses + moderately_matched_courses + unmatched_courses
     
     return filtered_courses
 
@@ -124,13 +241,19 @@ Here are the available {degree_level} courses:
 {course_catalog}
 
 Your task:
-1. Analyze the student's strengths, interests, favorite subjects, and career aspirations
-2. Suggest 3-4 best-fit {degree_level} courses that align with their profile
-3. For each recommended course, explain WHY it's a good fit using second person (you/your)
-4. Include the course URL for each recommendation
-5. Mention specific skills you have that match each course
+1. Analyze the student's strengths (top academic subjects), interests, AND extracurricular activities
+2. Give MEDIUM WEIGHT to their activities and derived skills when making recommendations
+3. Suggest 3-4 best-fit {degree_level} courses that align with their complete profile
+4. For each recommended course, explain WHY it's a good fit using second person (you/your)
+5. Include the course URL for each recommendation
+6. Mention how their activities and derived skills make them suitable for each course
 
 IMPORTANT: 
+- Consider activities as EQUALLY important as academic interests when recommending courses
+- If they have leadership activities, mention management/business potential
+- If they have technical projects, highlight engineering/technology fit
+- If they have creative activities, emphasize design/arts alignment
+- If they have sports activities, consider sports science/physical education
 - Only recommend {degree_level} courses - do not mix bachelor's and master's programs
 - Always address the student directly using "you" and "your" throughout your response
 - Keep the heading text size normal (not overly large)
@@ -143,31 +266,13 @@ End by asking: "Would you like me to explain more about any of these courses, or
     return prompt
 
 def prepare_context_prompt(profile, courses, chat_history):
-    """Prepare prompt with full chat context"""
+    """Prepare prompt with full chat context - focused on initial recommendations"""
     profile_str = json.dumps(profile, indent=2)
     
-    # Filter and match courses without bias
-    relevant_courses = filter_and_match_courses(courses, profile)
+    # Get the initial recommended courses from the first assistant message
+    initial_courses = extract_initial_recommended_courses(chat_history)
     degree_level = profile.get("degree_level", "Bachelor's Degree")
     
-    # Create course catalog
-    course_catalog = ""
-    seen_courses = set()
-    
-    for c in relevant_courses:
-        course_name = c.get('course', '')
-        degree_name = c.get('degree', '')
-        source_url = c.get('source_url', '')
-        
-        if (course_name, degree_name) in seen_courses or len(course_name.split()) < 3:
-            continue
-            
-        seen_courses.add((course_name, degree_name))
-        subjects = c.get('subjects', [])
-        subjects_str = f" (Subjects: {', '.join(subjects)})" if subjects else ""
-        
-        course_catalog += f"- **{course_name}** from {degree_name}{subjects_str}\n  URL: {source_url}\n\n"
-
     # Build conversation history - only include the last few relevant messages
     recent_messages = chat_history[-6:] if len(chat_history) > 6 else chat_history
     conversation_context = ""
@@ -177,12 +282,40 @@ def prepare_context_prompt(profile, courses, chat_history):
     if user_messages:
         latest_user_message = user_messages[-1].get("content", "")
         conversation_context = f"Student's current question: {latest_user_message}"
+    
+    # Check if student is asking for different/alternative courses
+    asking_for_alternatives = check_if_asking_for_alternatives(latest_user_message if user_messages else "")
+    
+    # Check if student is asking about a specific course
+    specific_course = check_if_asking_about_specific_course(latest_user_message if user_messages else "", chat_history)
 
-    prompt = f"""
+    if asking_for_alternatives:
+        # Only then provide new course options
+        relevant_courses = filter_and_match_courses(courses, profile)
+        course_catalog = ""
+        seen_courses = set()
+        
+        for c in relevant_courses:
+            course_name = c.get('course', '')
+            degree_name = c.get('degree', '')
+            source_url = c.get('source_url', '')
+            
+            if (course_name, degree_name) in seen_courses or len(course_name.split()) < 3:
+                continue
+                
+            seen_courses.add((course_name, degree_name))
+            subjects = c.get('subjects', [])
+            subjects_str = f" (Subjects: {', '.join(subjects)})" if subjects else ""
+            
+            course_catalog += f"- **{course_name}** from {degree_name}{subjects_str}\n  URL: {source_url}\n\n"
+
+        prompt = f"""
 You are an expert academic advisor at Jain University helping a student choose the right course.
 
 Student Profile:
 {profile_str}
+
+The student is asking for different/alternative course options from what was initially suggested.
 
 Available {degree_level} Courses:
 {course_catalog}
@@ -190,17 +323,67 @@ Available {degree_level} Courses:
 {conversation_context}
 
 Instructions:
-- Answer the student's question directly and naturally
-- Only recommend {degree_level} courses - do not mix bachelor's and master's programs
-- Provide helpful, specific advice about courses and career paths
+- The student wants to explore different options, so you can suggest new courses
+- Only recommend {degree_level} courses
+- Provide helpful, specific advice about these alternative courses
 - Include course URLs when recommending specific programs
 - Be supportive and encouraging
 - IMPORTANT: Always address the student directly using "you" and "your"
-- Do NOT repeat or echo previous conversation history
-- Keep your response focused and conversational
-- If recommending courses, format them clearly with explanations
+- Format recommendations clearly with explanations
 
-Respond naturally as their personal academic advisor.
+Respond naturally as their personal academic advisor offering alternative options.
+"""
+    elif specific_course:
+        # Student is asking about a specific course - focus only on that course
+        prompt = f"""
+You are an expert academic advisor at Jain University helping a student choose the right course.
+
+Student Profile:
+{profile_str}
+
+IMPORTANT: The student is currently asking about **{specific_course}** specifically. 
+
+{conversation_context}
+
+Instructions:
+- Answer ONLY about {specific_course} - do NOT mention other courses
+- If they ask about job opportunities, career prospects, subjects, etc. - relate everything to {specific_course}
+- Provide detailed, helpful information specifically about {specific_course}
+- Do NOT suggest other courses or alternatives unless they specifically ask
+- Be informative and enthusiastic about {specific_course}
+- IMPORTANT: Always address the student directly using "you" and "your"
+- Keep your response focused entirely on {specific_course}
+
+Your goal is to provide comprehensive information about {specific_course} that the student is asking about.
+
+Respond naturally as their personal academic advisor, focusing exclusively on {specific_course}.
+"""
+    else:
+        # Focus on initially recommended courses only
+        prompt = f"""
+You are an expert academic advisor at Jain University helping a student choose the right course.
+
+Student Profile:
+{profile_str}
+
+IMPORTANT CONTEXT: You have already suggested specific courses to this student in your initial recommendation. Here are the courses you initially recommended:
+{initial_courses}
+
+{conversation_context}
+
+Instructions:
+- FOCUS ONLY on the courses you initially recommended - do NOT suggest new courses
+- Answer the student's question in the context of those initially recommended courses
+- If they ask about career prospects, job opportunities, curriculum, etc. - relate it to the initially suggested courses
+- If they ask general questions, tie your answers back to how the initially recommended courses address their needs
+- Do NOT offer alternative courses or new suggestions unless they specifically ask for different options
+- Be helpful and informative about the courses you already suggested
+- IMPORTANT: Always address the student directly using "you" and "your"
+- Keep your response focused and conversational
+
+Your goal is to help the student understand and feel confident about the courses you initially recommended, not to overwhelm them with more options.
+
+Respond naturally as their personal academic advisor, staying focused on the initially suggested courses.
 """
 
     return prompt

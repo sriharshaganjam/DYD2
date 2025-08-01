@@ -146,6 +146,71 @@ def extract_interests_from_text(interest_text):
     
     # Remove duplicates and return
     return list(set(interests))
+
+def extract_activities_and_skills(activities_text):
+    """Extract specific activities and derive skills - MEDIUM WEIGHTAGE"""
+    if not activities_text:
+        return [], []
+    
+    activities = []
+    derived_skills = []
+    text_lower = activities_text.lower()
+    
+    # Activity patterns with derived skills (Medium weightage)
+    activity_skill_mapping = {
+        # Leadership activities
+        "Leadership": {
+            "activities": ["president", "leader", "captain", "head", "coordinator", "organize", "lead team"],
+            "skills": ["Leadership", "Team Management", "Organization"]
+        },
+        # Technical activities  
+        "Technical Projects": {
+            "activities": ["coding", "programming", "hackathon", "tech", "app", "website", "software", "project"],
+            "skills": ["Technical Skills", "Problem Solving", "Innovation"]
+        },
+        # Creative activities
+        "Creative Arts": {
+            "activities": ["art", "design", "painting", "photography", "creative", "drawing", "graphics"],
+            "skills": ["Creativity", "Visual Communication", "Artistic Expression"]
+        },
+        # Sports activities
+        "Sports & Athletics": {
+            "activities": ["sports", "athletics", "team", "competition", "tournament", "fitness", "captain"],
+            "skills": ["Teamwork", "Discipline", "Physical Fitness", "Competitive Spirit"]
+        },
+        # Community service
+        "Community Service": {
+            "activities": ["volunteer", "community", "service", "ngo", "charity", "social", "help"],
+            "skills": ["Social Responsibility", "Empathy", "Communication"]
+        },
+        # Academic competitions
+        "Academic Excellence": {
+            "activities": ["competition", "olympiad", "quiz", "debate", "research", "science fair"],
+            "skills": ["Analytical Thinking", "Research Skills", "Academic Excellence"]
+        },
+        # Performance activities
+        "Performance & Arts": {
+            "activities": ["music", "dance", "theater", "performance", "singing", "acting"],
+            "skills": ["Performance Skills", "Confidence", "Cultural Awareness"]
+        },
+        # Business activities
+        "Business & Entrepreneurship": {
+            "activities": ["business", "entrepreneur", "startup", "internship", "work", "sales"],
+            "skills": ["Business Acumen", "Professional Skills", "Initiative"]
+        }
+    }
+    
+    # Extract activities and derive skills
+    for category, data in activity_skill_mapping.items():
+        activity_keywords = data["activities"]
+        skills = data["skills"]
+        
+        # Check if any activity keywords match
+        if any(keyword in text_lower for keyword in activity_keywords):
+            activities.append(category)
+            derived_skills.extend(skills)
+    
+    return list(set(activities)), list(set(derived_skills))
 def extract_interests_from_certificates(cert_paths):
     keywords = {
         "design": "Design",
@@ -240,11 +305,35 @@ def build_student_profile(marks, interests_from_certs, degree_level, q1, q2, q3,
     sorted_subjects = sorted(marks.items(), key=lambda x: x[1], reverse=True) if marks else []
     strengths = [subj for subj, _ in sorted_subjects[:3]]  # Top 3 subjects as strengths
 
-    # Extract interests from text responses
-    interests_from_text = extract_interests_from_text(q3 + " " + (q4 or ""))
+    # Extract interests from text responses (Q3 - academic interests)
+    interests_from_text = extract_interests_from_text(q3)
     
-    # Combine interests from certificates and text
+    # Extract activities and skills from Q4 - MEDIUM WEIGHTAGE
+    activities, derived_skills = extract_activities_and_skills(q4)
+    
+    # Combine all interests (certificates + academic interests + activity-derived interests)
     all_interests = list(set(interests_from_certs + interests_from_text))
+    
+    # Add activity-derived interests to main interests (increasing activity weightage)
+    activity_interests = []
+    for activity in activities:
+        if "Technical" in activity:
+            activity_interests.append("Technology")
+        elif "Creative" in activity:
+            activity_interests.append("Design")
+        elif "Sports" in activity:
+            activity_interests.append("Sports")
+        elif "Business" in activity:
+            activity_interests.append("Business")
+        elif "Community" in activity:
+            activity_interests.append("Social Work") 
+        elif "Performance" in activity:
+            activity_interests.append("Music")
+        elif "Academic" in activity:
+            activity_interests.append("Science")
+    
+    # Combine all interests - activities now have medium weight
+    all_interests = list(set(all_interests + activity_interests))
 
     # Analyze profile completeness
     completeness_score, missing_areas = analyze_profile_completeness(marks, all_interests, q1, q2, q3, q4)
@@ -256,7 +345,9 @@ def build_student_profile(marks, interests_from_certs, degree_level, q1, q2, q3,
     profile = {
         "marks_data": marks,  # Store the full marks data
         "strengths": strengths,
-        "interests": all_interests,  # Combined interests
+        "interests": all_interests,  # Combined interests including activity-derived
+        "activities": activities,  # NEW: Explicit activities tracking - MEDIUM WEIGHT
+        "derived_skills": derived_skills,  # NEW: Skills from activities - MEDIUM WEIGHT
         "degree_level": degree_level,  # New field for degree level
         "favorite_subjects": [q3],
         "aspiration": q1,
